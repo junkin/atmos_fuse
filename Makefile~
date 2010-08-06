@@ -1,0 +1,15 @@
+LIBS=-latmos -L/usr/local/lib/ -I../../atmos-c -lssl -lcurl
+INC = -I/home/sjunkin/cwrapper
+bbfs : bbfs.o log.o
+	gcc -g `pkg-config fuse --libs` -o bbfs bbfs.o log.o ${INC} ${LIBS}
+
+bbfs.o : bbfs.c log.h params.h
+	gcc -g -Wall `pkg-config fuse --cflags` ${LIBS} ${INC} -c bbfs.c
+
+log.o : log.c log.h params.h
+	gcc -g -Wall `pkg-config fuse --cflags` ${LIBS} ${INC} -c log.c
+
+clean:
+	rm -f bbfs *.o
+hello: hello.c
+	gcc `pkg-config fuse --libs` -o hello_fuse hello.c -D_FILE_OFFSET_BITS=64 -DFUSE_USE_VERSION=22
