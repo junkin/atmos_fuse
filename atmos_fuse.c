@@ -1,5 +1,4 @@
 /*
-
  */
 
 
@@ -17,6 +16,7 @@
 #include <sys/types.h>
 #include <sys/xattr.h>
 
+
 #include "params.h"
 //MUST be declared after params.h
 #include <fuse.h>
@@ -25,6 +25,9 @@
 #include "atmos_rest.h"
 #include "transport.h"
 #include "time.h"
+#include <libmemcached/memcached.h>
+
+
 static mode_t root_mode = 0;
 
 // Report errors to logfile and give -errno to caller
@@ -109,9 +112,25 @@ int atmos_getattr(const char *path, struct stat *statbuf)
   statbuf->st_mode = S_IFREG | 0444;
   sprintf(fpath, "%s%s",ATMOS_DATA->rootdir, path);
   log_msg("\natmos_getattr(path=\"%s\", statbuf=0x%08x)\n", fpath, statbuf);
-  list_ns(ATMOS_DATA->c, fpath, NULL,0,&wsr);
-  memset(&sm, 0, sizeof(sm));
-  parse_headers(&wsr, &sm, NULL); 
+
+  //Check cache!
+  size_t length = 0;
+  uint32_t flags;
+  memcached_return_t error;
+  char *cached_stat = memcached_get(ATMOS_DATA->attr_cache, path, strlen(path), &length, &flags, &error);
+  if(cached_stat) {
+    parse_headers(cached_stat, &sm, NULL); 
+    wsr.return_code = 200;
+    log_msg("Cache hit for %s's attrbuf\n", path);
+  }  else { 
+    list_ns(ATMOS_DATA->c, fpath, NULL,0,&wsr);
+    
+    memset(&sm, 0, sizeof(sm));
+    parse_headers(&wsr, &sm, NULL); 
+
+    memcached_set(ATMOS_DATA->attr_cache, path, strlen(path), (const char*)&sm, sizeof(sm), 0, flags);
+
+  }
 
   //  log_msg("get_attr restful codee %d\n", wsr.return_code);
   if(200 == wsr.return_code) {
@@ -1189,9 +1208,19 @@ int main(int argc, char *argv[])
   int fuse_stat;
   struct atmos_state *atmos_data;
   ws_result wsr;
-
-    
+  static int opt_binary= 0;
+  //setup memcaceh
   atmos_data = calloc(sizeof(struct atmos_state), 1);
+  
+  atmos_data->attr_cache = memcached_create(NULL);
+    
+    memcached_server_st *servers= memcached_servers_parse("192.168.1.50");
+    memcached_server_push(atmos_data->attr_cache, servers);
+    memcached_server_list_free(servers);
+    memcached_behavior_set(atmos_data->attr_cache, MEMCACHED_BEHAVIOR_BINARY_PROTOCOL,
+			   (uint64_t)opt_binary);
+  
+
   if (atmos_data == NULL) {
     perror("main calloc");
     abort();

@@ -13,7 +13,7 @@
 #include <limits.h>
 #include <stdio.h>
 #include "transport.h"
-
+#include <libmemcached/memcached.h>
 static const int OBJECTID_SIZE = 44;
 
 typedef struct FS_LIST {
@@ -21,10 +21,13 @@ typedef struct FS_LIST {
   char objectid[44];
   void *next;
 } fd_list;
+
 struct atmos_state {
     FILE *logfile;
     char *rootdir;
     fd_list *head;
+    memcached_st *attr_cache;
+    memcached_st *block_cache;
     credentials *c;
 };
 
