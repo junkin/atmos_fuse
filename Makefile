@@ -1,4 +1,4 @@
-LIBS=-latmos -L/usr/local/lib/ -I../../atmos-c -lssl -lcurl -lmemcached
+LIBS=-latmos -L/usr/local/lib/ -I/usr/local/include -lssl -lcurl -lmemcached
 
 atmos_fuse : atmos_fuse.o log.o
 	gcc -g `pkg-config fuse --libs` -o atmos_fuse atmos_fuse.o log.o ${INC} ${LIBS}

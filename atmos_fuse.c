@@ -24,6 +24,7 @@
 #include "log.h"
 #include "atmos_rest.h"
 #include "transport.h"
+#define _XOPEN_SOURCE /* glibc2 needs this */
 #include "time.h"
 #include <libmemcached/memcached.h>
 
@@ -100,8 +101,10 @@ int atmos_getattr(const char *path, struct stat *statbuf)
 
   ws_result wsr;
   system_meta sm;
-  user_meta *um;
+  user_meta *um=NULL;
   char fpath[PATH_MAX];
+
+  
   memset(statbuf, 0, sizeof(struct stat));
   if (strcmp(path, "/") == 0) {
     log_msg("Found root short circuiting\n");
@@ -115,65 +118,67 @@ int atmos_getattr(const char *path, struct stat *statbuf)
 
   //Check cache!
   size_t length = 0;
-  uint32_t flags;
+  uint32_t flags = 0;
   memcached_return_t error;
   char *cached_stat = memcached_get(ATMOS_DATA->attr_cache, path, strlen(path), &length, &flags, &error);
+  
+  
   if(cached_stat) {
-    parse_headers(cached_stat, &sm, NULL); 
     wsr.return_code = 200;
     log_msg("Cache hit for %s's attrbuf\n", path);
-  }  else { 
-    list_ns(ATMOS_DATA->c, fpath, NULL,0,&wsr);
+    memcpy(&sm, cached_stat, length);
     
+  }  else { 
+    //postdata pd;
+    //memset(&pd, 0, sizeof(postdata));
+    list_ns(ATMOS_DATA->c, fpath, NULL,0,&wsr);
     memset(&sm, 0, sizeof(sm));
-    parse_headers(&wsr, &sm, NULL); 
+    parse_headers(&wsr, &sm, &um);
+    memcached_set(ATMOS_DATA->attr_cache, path, 
+		  strlen(path), (const char*)&sm, sizeof(sm), 0, flags);
+    if(200 != wsr.return_code) {
+      log_msg("list_ns failed!@#! %d\n", wsr.return_code);
+      //    errno = -ENOENT;
+      retstat = -ENOENT;
 
-    memcached_set(ATMOS_DATA->attr_cache, path, strlen(path), (const char*)&sm, sizeof(sm), 0, flags);
-
-  }
-
-  //  log_msg("get_attr restful codee %d\n", wsr.return_code);
-  if(200 == wsr.return_code) {
-    //statbuf->st_mode = S_IFREG;
-    retstat = 0;
-    statbuf->st_size = sm.size;
-    statbuf->st_blocks = sm.size/512;
-    statbuf->st_dev = 0;
-    statbuf->st_ino = 0;
-    statbuf->st_nlink = 1;//sm.nlink; //needs to be at least 1? FIXME
-    //put fs uid/gid into user meta?
-    statbuf->st_uid = 0;
-    statbuf->st_gid = 0;
-    statbuf->st_rdev = 0;
-    //2010-07-11T23:29:25Z
-    struct tm atime;
-    struct tm ctime;
-    struct tm mtime;
-    memset(&atime, 0, sizeof(struct tm));
-    memset(&ctime, 0, sizeof(struct tm));
-    memset(&mtime, 0, sizeof(struct tm));
-    strptime(sm.atime, "%Y-%m-%dT%H:%M:%SZ", &atime);
-    strptime(sm.ctime, "%Y-%m-%dT%H:%M:%SZ", &atime);
-    strptime(sm.mtime, "%Y-%m-%dT%H:%M:%SZ", &mtime);
-    statbuf->st_atime = mktime(&atime);
-    statbuf->st_ctime = mktime(&ctime);
-    statbuf->st_mtime = mktime(&mtime);
-    //  log_msg("atmos_getattr size: %d \tlinks:%d\t\n", statbuf->st_size, statbuf->st_nlink);
-    log_stat(statbuf);
-    if(0==strcmp(sm.type, "directory")) {
-      statbuf->st_mode = S_IFDIR | 0755;
-    } else {
-      statbuf->st_mode = S_IFREG | 0777;
+      result_deinit(&wsr);      
+      return retstat;
     }
-  } else {
-    retstat = -ENOENT;
-    //    errno = -ENOENT;
-
-    //log_msg("error number  [%d] (%s) and rest says %d\n", retstat, strerror(retstat),wsr.return_code);
-  
+    result_deinit(&wsr);
   }
-  result_deinit(&wsr);
-
+  
+  //statbuf->st_mode = S_IFREG;
+  retstat = 0;
+  statbuf->st_size = sm.size;
+  statbuf->st_blocks = sm.size/512;
+  statbuf->st_dev = 0;
+  statbuf->st_ino = 0;
+  statbuf->st_nlink = 1;//sm.nlink; //needs to be at least 1? FIXME
+  //put fs uid/gid into user meta?
+  statbuf->st_uid = 0;
+  statbuf->st_gid = 0;
+  statbuf->st_rdev = 0;
+  //2010-07-11T23:29:25Z
+  struct tm atime;
+  struct tm ctime;
+  struct tm mtime;
+  memset(&atime, 0, sizeof(struct tm));
+  memset(&ctime, 0, sizeof(struct tm));
+  memset(&mtime, 0, sizeof(struct tm));
+  strptime(sm.atime, "%Y-%m-%dT%H:%M:%SZ", &atime);
+  strptime(sm.ctime, "%Y-%m-%dT%H:%M:%SZ", &atime);
+  strptime(sm.mtime, "%Y-%m-%dT%H:%M:%SZ", &mtime);
+  statbuf->st_atime = mktime(&atime);
+  statbuf->st_ctime = mktime(&ctime);
+  statbuf->st_mtime = mktime(&mtime);
+  //  log_msg("atmos_getattr size: %d \tlinks:%d\t\n", statbuf->st_size, statbuf->st_nlink);
+  //    log_stat(statbuf);
+  if(0==strcmp(sm.type, "directory")) {
+    statbuf->st_mode = S_IFDIR | 0755;
+  } else {
+    statbuf->st_mode = S_IFREG | 0777;
+  }
+  
   return retstat;
 }
 
@@ -365,8 +370,8 @@ int atmos_symlink(const char *path, const char *link)
 int atmos_rename(const char *path, const char *newpath)
 {
   int retstat = 0;
-  char fpath[PATH_MAX];
-  char fnewpath[PATH_MAX];
+  //  char fpath[PATH_MAX];
+  //char fnewpath[PATH_MAX];
     
   log_msg("\natmos_rename(fpath=\"%s\", newpath=\"%s\")\n",
 	  path, newpath);
@@ -414,7 +419,7 @@ int atmos_chmod(const char *path, mode_t mode)
 
   memset(&meta, 0, sizeof(user_meta));
   strcpy(meta.key, "mode_t");
-  memcpy(meta.value, mode, sizeof(mode_t));
+  memcpy((void*)&meta.value, (void*)&mode, sizeof(mode_t));
   update_ns(ATMOS_DATA->c, fpath, NULL, NULL, NULL,&meta, &wsr);
   result_deinit(&wsr);
 
@@ -440,11 +445,11 @@ int atmos_chown(const char *path, uid_t uid, gid_t gid)
 
   memset(&meta_uid, 0, sizeof(user_meta));
   strcpy(meta_uid.key, "uid");
-  memcpy(meta_uid.value, uid, sizeof(uid_t));
 
-  memset(&meta_gid, 0, sizeof(user_meta));
+  memcpy((void*)&meta_uid.value, (void*)&uid, sizeof(uid_t));
+   memset(&meta_gid, 0, sizeof(user_meta));
   strcpy(meta_gid.key, "gid");
-  memcpy(meta_gid.value, gid, sizeof(gid_t));
+  memcpy((void*)&meta_gid.value, (void*)&gid, sizeof(gid_t));
 
   meta_uid.next=&meta_gid;
   update_ns(ATMOS_DATA->c, fpath, NULL, NULL, NULL,&meta_uid, &wsr);
@@ -516,7 +521,7 @@ int atmos_utime(const char *path, struct utimbuf *ubuf)
  */
 int atmos_open(const char *path, struct fuse_file_info *fi)
 {
-  int retstat = 0;
+  //int retstat = 0;
   char fpath[PATH_MAX];
     
   log_msg("\natmos_open(path\"%s\", fi=0x%08x)\n",
@@ -895,12 +900,18 @@ int atmos_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_t off
 		  struct fuse_file_info *fi)
 {
   int retstat = 0;
-  struct dirent *de=NULL;
+  //  struct dirent *de=NULL;
   ws_result wsr;    
-  user_meta *um=NULL;
-  system_meta sm;
+  //user_meta *um=NULL;
+  //system_meta sm;
   char fpath[PATH_MAX];
   char *direntry = NULL;
+
+  postdata pd;
+  pd.body_size=size;
+  pd.offset=offset;
+  pd.data=NULL;
+
 
   static const char *needle_start="<Filename>";
   static const char *needle_end="</Filename>";
@@ -909,20 +920,21 @@ int atmos_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_t off
 	  path, buf, filler, offset, fi);
 
   atmos_fullpath(fpath, path);
-  list_ns(ATMOS_DATA->c, fpath, NULL,0,&wsr);
-  parse_headers(&wsr, &sm, &um);
+  list_ns(ATMOS_DATA->c, fpath,&pd,0,&wsr);
+
+  /*  parse_headers(&wsr, &sm, &um);
   while(um != NULL) {
     user_meta *t = um->next;
     log_msg("%s=%s %d\n", um->key, um->value, um->listable);
     free(um);
     um=t;
-  }
+    }*/
 
-  char *body = malloc(wsr.body_size+1);
-  body[wsr.body_size] = '\0';
-  memcpy(body, wsr.response_body, wsr.body_size);
+  char *body = malloc(pd.body_size+1);
+  body[pd.body_size] = '\0';
+  memcpy(body, pd.data, pd.body_size);
   log_msg("dir entries\n%s", body);
-
+  free(pd.data);
 
   direntry = body;
   while( (direntry = strstr(direntry,needle_start)) ) {
@@ -1072,7 +1084,7 @@ int atmos_access(const char *path, int mask)
  */
 int atmos_create(const char *path, mode_t mode, struct fuse_file_info *fi)
 {
-  int retstat = 0;
+  //int retstat = 0;
   char fpath[PATH_MAX];
   //    int fd;
     
@@ -1214,7 +1226,7 @@ int main(int argc, char *argv[])
   
   atmos_data->attr_cache = memcached_create(NULL);
     
-    memcached_server_st *servers= memcached_servers_parse("192.168.1.50");
+    memcached_server_st *servers= memcached_servers_parse("localhost");
     memcached_server_push(atmos_data->attr_cache, servers);
     memcached_server_list_free(servers);
     memcached_behavior_set(atmos_data->attr_cache, MEMCACHED_BEHAVIOR_BINARY_PROTOCOL,
@@ -1245,12 +1257,12 @@ int main(int argc, char *argv[])
   argc--;
 
   
-  //static const char *user_id = "604373f7c99b404caa2e430626f74977/mail";
-  //static const char *key = "w7mxRvPlDYUkA4J6uTuItfUS1u4=";
-  //static const char *endpoint = "10.241.38.90";  
+  /*static const char *user_id = "mail";
+  static const char *key = "w7mxRvPlDYUkA4J6uTuItfUS1u4=";
+  static const char *endpoint = "10.241.38.90";  //*/
   static const char *user_id = "0e069767430c4d37997853b058eb0af8/EMC007A49DEEA84C837E";
   static const char *key ="YlVdJFb03nYtXZk0lk0KjQplVcI=";
-  static const char *endpoint ="accesspoint.emccis.com";
+  static const char *endpoint ="accesspoint.emccis.com";//*/
 
 
   atmos_data->c = init_ws(user_id, key, endpoint);
