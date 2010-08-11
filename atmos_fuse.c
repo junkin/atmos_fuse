@@ -129,6 +129,7 @@ int atmos_getattr(const char *path, struct stat *statbuf)
     memcpy(&sm, cached_stat, length);
     
   }  else { 
+    log_msg("Cache miss for %s's attrbuf\n", path);
     //postdata pd;
     //memset(&pd, 0, sizeof(postdata));
     list_ns(ATMOS_DATA->c, fpath, NULL,0,&wsr);
@@ -554,8 +555,7 @@ int atmos_open(const char *path, struct fuse_file_info *fi)
  */
 int atmos_read(const char *path, char *buf, size_t size, off_t offset, struct fuse_file_info *fi)
 {
-  log_msg("Entering atmos_Read\n");
-
+  log_msg("\nEntering atmos_Read\n");
   int retstat = 0;
   ws_result wsr;
   char fpath[PATH_MAX];
@@ -570,6 +570,7 @@ int atmos_read(const char *path, char *buf, size_t size, off_t offset, struct fu
   log_msg("\natmos_read result %d\tsized: %d\n", wsr.return_code, wsr.body_size);
   retstat = (wsr.body_size > size) ? size: wsr.body_size;
 
+  if(wsr.return_code == 
   memcpy(buf,wsr.response_body,retstat);
   log_msg("\natmos_rest %d\t%s\n", retstat,buf);
   if (retstat < 0)
@@ -908,8 +909,7 @@ int atmos_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_t off
   char *direntry = NULL;
 
   postdata pd;
-  pd.body_size=size;
-  pd.offset=offset;
+  memset(&pd, 0, sizeof(postdata));
   pd.data=NULL;
 
 
@@ -930,11 +930,17 @@ int atmos_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_t off
     um=t;
     }*/
 
+  /*log_msg("size of body: %d\ntext of body", pd.body_size);
   char *body = malloc(pd.body_size+1);
   body[pd.body_size] = '\0';
   memcpy(body, pd.data, pd.body_size);
   log_msg("dir entries\n%s", body);
   free(pd.data);
+  */
+  char *body = malloc(wsr.body_size+1);
+  body[wsr.body_size] = '\0';
+  memcpy(body, wsr.response_body, wsr.body_size);
+  log_msg("dir entries\n%s", body);
 
   direntry = body;
   while( (direntry = strstr(direntry,needle_start)) ) {
