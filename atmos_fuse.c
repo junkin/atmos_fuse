@@ -25,7 +25,7 @@
 #include "atmos_rest.h"
 #include "transport.h"
 #define _XOPEN_SOURCE /* glibc2 needs this */
-#include "time.h"
+#include <time.h>
 #include <libmemcached/memcached.h>
 
 
@@ -135,8 +135,7 @@ int atmos_getattr(const char *path, struct stat *statbuf)
     list_ns(ATMOS_DATA->c, fpath, NULL,0,&wsr);
     memset(&sm, 0, sizeof(sm));
     parse_headers(&wsr, &sm, &um);
-    memcached_set(ATMOS_DATA->attr_cache, path, 
-		  strlen(path), (const char*)&sm, sizeof(sm), 0, flags);
+    if(wsr.return_code == 200) memcached_set(ATMOS_DATA->attr_cache, path, strlen(path), (const char*)&sm, sizeof(sm), 0, flags);
     if(200 != wsr.return_code) {
       log_msg("list_ns failed!@#! %d\n", wsr.return_code);
       //    errno = -ENOENT;
@@ -338,13 +337,14 @@ int atmos_symlink(const char *path, const char *link)
   int retstat = 0;
   ws_result wsr;
   char fpath[PATH_MAX];
-  sprintf(fpath, "%s%s",ATMOS_DATA->rootdir, path);
+  sprintf(fpath, "%s%s",ATMOS_DATA->rootdir,link);
 
   log_msg("\natmos_symlink(path=\"%s\", link=\"%s\")\n",
 	  path, link);
 
   create_ns(ATMOS_DATA->c, fpath, NULL, NULL, NULL, &wsr);
   log_msg("%s\t\n", wsr.response_body);
+  //FIXME also needs metadata symlink=true
   if(201 ==  wsr.return_code ) {
     postdata *pd = malloc(sizeof(postdata));
     memset(pd, 0, sizeof(postdata));
@@ -570,9 +570,14 @@ int atmos_read(const char *path, char *buf, size_t size, off_t offset, struct fu
   log_msg("\natmos_read result %d\tsized: %d\n", wsr.return_code, wsr.body_size);
   retstat = (wsr.body_size > size) ? size: wsr.body_size;
 
-  if(wsr.return_code == 
-  memcpy(buf,wsr.response_body,retstat);
-  log_msg("\natmos_rest %d\t%s\n", retstat,buf);
+  if(wsr.return_code >= 200 && wsr.return_code < 300) {
+    memcpy(buf,wsr.response_body,retstat);
+    log_msg("\natmos_rest %d\t%s\n", retstat,buf);
+  } else {
+    log_msg("\natmos_rest read failed with %d\t%s\n", retstat,wsr.response_body);
+    retstat = 0;
+  }
+
   if (retstat < 0)
     retstat = atmos_error("atmos_read read");
 
@@ -607,7 +612,7 @@ int atmos_write(const char *path, const char *buf, size_t size, off_t offset,
   // no need to get fpath on this one, since I work from fi->fh not the path
   log_fi(fi);
 
-  pd->data = buf;//memcpy(pd->data, buf, size);
+  pd->data = (char*)buf;//memcpy(pd->data, buf, size);
   pd->offset = offset;
   pd->body_size = size;
 
@@ -1263,10 +1268,10 @@ int main(int argc, char *argv[])
   argc--;
 
   
-  /*static const char *user_id = "mail";
+  static const char *user_id = "mail";
   static const char *key = "w7mxRvPlDYUkA4J6uTuItfUS1u4=";
   static const char *endpoint = "10.241.38.90";  //*/
-  static const char *user_id = "0e069767430c4d37997853b058eb0af8/EMC007A49DEEA84C837E";
+  /*  static const char *user_id = "0e069767430c4d37997853b058eb0af8/EMC007A49DEEA84C837E";
   static const char *key ="YlVdJFb03nYtXZk0lk0KjQplVcI=";
   static const char *endpoint ="accesspoint.emccis.com";//*/
 
