@@ -206,7 +206,7 @@ int atmos_readlink(const char *path, char *link, size_t size)
   char fpath[PATH_MAX];
   sprintf(fpath, "%s%s",ATMOS_DATA->rootdir, path);
 
-  //log_msg("\natmos_getattr(path=\"%s\", statbuf=0x%08x)\n", path, statbuf);
+  log_msg("\natmos_readlink(path=\"%s\"\n", path);
   list_ns(ATMOS_DATA->c, fpath,NULL, 0,&wsr);
   result_deinit(&wsr);
   //retstat = lstat(fpath, statbuf);
@@ -793,7 +793,9 @@ int atmos_getxattr(const char *path, const char *name, char *value, size_t size)
   char fpath[PATH_MAX];
   sprintf(fpath, "%s%s",ATMOS_DATA->rootdir, path);
 
-  list_ns(ATMOS_DATA->c, fpath, NULL, 0,&result);      
+  log_msg("atmos_getxattr for %s %s=%s\n", path, name, value);
+
+  /*list_ns(ATMOS_DATA->c, fpath, NULL, 0,&result);      
   parse_headers(&result, &sm, &um);
   while(um != NULL) {
     user_meta *t = um->next;
@@ -805,7 +807,8 @@ int atmos_getxattr(const char *path, const char *name, char *value, size_t size)
     um=t;
   }
   result_deinit(&result);
-  //  log_msg("\natmos_getxattr(path = \"%s\", name = \"%s\", value = \"%s\", size = %d)\n",path, name, value, size);
+  */
+    log_msg("\natmos_getxattr(path = \"%s\", name = \"%s\", value = \"%s\", size = %d)\n",path, name, value, size);
 
   if (retstat < 0)
     retstat = atmos_error("atmos_getxattr lgetxattr");
